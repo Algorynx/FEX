@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLineEdit,
-    QListWidget, QListWidgetItem, QFileIconProvider, QTreeWidget, QTreeWidgetItem, QMenu
+    QListWidget, QListWidgetItem, QFileIconProvider, QTreeWidget, QTreeWidgetItem, QMenu,
+    QPushButton, QProgressBar, QLabel, QFrame
 )
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QFileInfo, Qt, QThread, pyqtSignal
@@ -77,6 +78,7 @@ class FEXApp(QMainWindow):
         except Exception as e:
             print(f"Error detecting Desktop path: {e}")
             return os.path.join(os.path.expanduser("~"), "Desktop")
+        
 
     def init_ui(self):
         main_widget = QWidget()
@@ -85,29 +87,8 @@ class FEXApp(QMainWindow):
         
         self.sidebar = QTreeWidget()
         self.sidebar.setHeaderHidden(True)
-        self.sidebar.setFixedWidth(200)
-        
-        icon_provider = QFileIconProvider()
-        
-        user_home = os.path.expanduser("~")
-        desktop_path = self.get_desktop_path()
-        
-        self.quick_access_paths = {
-            "Desktop": desktop_path,
-            "Documents": os.path.join(user_home, "Documents"),
-            "Downloads": os.path.join(user_home, "Downloads"),
-            "Pictures": os.path.join(user_home, "Pictures"),
-            "Music": os.path.join(user_home, "Music"),
-            "Videos": os.path.join(user_home, "Videos"),
-        }
-
-        for name, path in self.quick_access_paths.items():
-            if os.path.exists(path):
-                item = QTreeWidgetItem([name])
-                item.setData(0, Qt.ItemDataRole.UserRole, path)
-                item.setIcon(0, icon_provider.icon(QFileInfo(path)))
-                self.sidebar.addTopLevelItem(item)
-
+        self.sidebar.setFixedWidth(250)
+        self.populate_sidebar()
         self.sidebar.itemClicked.connect(self.sidebar_navigation)
         main_layout.addWidget(self.sidebar)
 
@@ -125,6 +106,28 @@ class FEXApp(QMainWindow):
         self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_list.customContextMenuRequested.connect(self.show_context_menu)
         self.file_list.itemDoubleClicked.connect(self.open_selected_file)  # Double-click to open
+
+    def populate_sidebar(self):
+        icon_provider = QFileIconProvider()
+        user_home = os.path.expanduser("~")
+        quick_access_paths = {
+            "Desktop": os.path.join(user_home, "Desktop"),
+            "Documents": os.path.join(user_home, "Documents"),
+            "Downloads": os.path.join(user_home, "Downloads"),
+            "Pictures": os.path.join(user_home, "Pictures"),
+            "Music": os.path.join(user_home, "Music"),
+            "Videos": os.path.join(user_home, "Videos"),
+        }
+        
+        for name, path in quick_access_paths.items():
+            if os.path.exists(path):
+                item = QTreeWidgetItem([name])
+                item.setData(0, Qt.ItemDataRole.UserRole, path)
+                item.setIcon(0, icon_provider.icon(QFileInfo(path)))
+                self.sidebar.addTopLevelItem(item)
+        
+        self.add_volume_containers()
+
 
     def search_files(self):
         query = self.search_box.text().strip()
@@ -154,26 +157,46 @@ class FEXApp(QMainWindow):
             item.setIcon(icon_provider.icon(QFileInfo(result)))
             self.file_list.addItem(item)
 
+    def add_volume_containers(self):
+        icon_provider = QFileIconProvider()
+        for partition in psutil.disk_partitions():
+            drive = partition.device
+            if os.path.exists(drive):
+                usage = psutil.disk_usage(drive)
+                item = QTreeWidgetItem([f"{drive} ({usage.free // (1024**3)}GB free)"])
+                item.setData(0, Qt.ItemDataRole.UserRole, drive)
+                item.setIcon(0, icon_provider.icon(QFileInfo(drive)))
+                
+                # Add a progress bar
+                progress_bar = QProgressBar()
+                progress_bar.setFixedWidth(180)
+                progress_bar.setValue(int((usage.used / usage.total) * 100))
+                progress_bar.setTextVisible(False)
+                
+                container = QFrame()
+                layout = QVBoxLayout(container)
+                layout.addWidget(QLabel(drive))
+                layout.addWidget(progress_bar)
+                self.sidebar.addTopLevelItem(item)
+    
     def sidebar_navigation(self, item):
         directory = item.data(0, Qt.ItemDataRole.UserRole)
         if directory:
             self.update_content_view(directory)
-
+    
     def update_content_view(self, directory):
         self.file_list.clear()
-        self.current_directory = directory
         icon_provider = QFileIconProvider()
         try:
-            for file in os.listdir(directory):
-                file_path = os.path.join(directory, file)
-                file_info = QFileInfo(file_path)
-                item = QListWidgetItem(file)
-                item.setIcon(icon_provider.icon(file_info))
-                item.setData(Qt.ItemDataRole.UserRole, file_path)
-                self.file_list.addItem(item)
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    item = QListWidgetItem(entry.name)
+                    item.setIcon(icon_provider.icon(QFileInfo(entry.path)))
+                    item.setData(Qt.ItemDataRole.UserRole, entry.path)
+                    self.file_list.addItem(item)
         except Exception as e:
             self.file_list.addItem(QListWidgetItem(f"Error: {str(e)}"))
-
+            
     def open_selected_file(self, item):
         """Opens the file when double-clicked."""
         file_path = item.data(Qt.ItemDataRole.UserRole)
