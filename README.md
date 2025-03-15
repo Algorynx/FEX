@@ -189,7 +189,7 @@ The application implements comprehensive error handling:
 1. Install Python 3.8+
 2. Install required packages:
    ```bash
-   pip install PyQt6 cryptography
+   pip install PyQt6 cryptography send2trash psutil
    ```
 3. Place Everything64.dll in application directory
 4. Run main.py
